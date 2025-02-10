@@ -43,7 +43,12 @@ import boto3
 import sagemaker
 from sagemaker import get_execution_role
 
-role = get_execution_role()
+try:
+    role = get_execution_role()
+except Exception as e:
+    print(f"Error retrieving execution role: {e}")
+    raise
+
 sess = sagemaker.Session()
 
 estimator = sagemaker.sklearn.SKLearn(
@@ -51,7 +56,7 @@ estimator = sagemaker.sklearn.SKLearn(
     role=role,
     instance_type='ml.m5.large',
     framework_version='0.23-1',
-    output_path='s3://your-bucket/output/'
+    output_path=os.getenv('S3_OUTPUT_PATH', 's3://your-bucket/output/')  # Use environment variable for flexibility
 )
 estimator.fit({'train': 's3://your-bucket/data/train.csv'})
 ```
@@ -60,7 +65,14 @@ estimator.fit({'train': 's3://your-bucket/data/train.csv'})
 - Deploy the trained model as a **SageMaker Endpoint** for real-time inference.
 
 ```python
-predictor = estimator.deploy(
+try:
+    predictor = estimator.deploy(
+        initial_instance_count=1,
+        instance_type='ml.m5.large'
+    )
+except Exception as e:
+    print(f"Error deploying model: {e}")
+    raise
     initial_instance_count=1,
     instance_type='ml.m5.large'
 )
@@ -98,6 +110,13 @@ cloudwatch.put_metric_alarm(
     AlarmName='SageMakerEndpointLatency',
     MetricName='Latency',
     Namespace='AWS/SageMaker',
+    Threshold=500,  # Consider dynamically adjusting based on historical data
+    ComparisonOperator='GreaterThanThreshold',
+    Period=60,
+    EvaluationPeriods=2
+    AlarmName='SageMakerEndpointLatency',
+    MetricName='Latency',
+    Namespace='AWS/SageMaker',
     Threshold=500,
     ComparisonOperator='GreaterThanThreshold',
     Period=60,
@@ -122,7 +141,10 @@ print("Prediction:", response)
 - Delete SageMaker Endpoint to avoid ongoing charges.
 
 ```python
-predictor.delete_endpoint()
+try:
+    predictor.delete_endpoint()
+except Exception as e:
+    print(f"Error deleting endpoint: {e}")
 ```
 
 ## Conclusion
