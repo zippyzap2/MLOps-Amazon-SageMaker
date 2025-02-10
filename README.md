@@ -27,16 +27,55 @@ flowchart TD
   - AWS CloudWatch (For monitoring logs)
 
 ### 2. **Data Ingestion & Preprocessing**
-- Store raw data in an **Amazon S3** bucket.
-- Use an **AWS Lambda function** to:
-  - Perform basic **data cleaning**
-  - Store preprocessed data in another S3 bucket
+#### Storing raw data in an Amazon S3 bucket using AWS CloudFormation
+Create an S3 bucket using the following **CloudFormation** template:
+
+```yaml
+Resources:
+  MLDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: mlops-raw-data-bucket
+```
+
+Upload raw data to this bucket using the AWS CLI:
+
+```sh
+aws s3 cp data.csv s3://mlops-raw-data-bucket/
+```
+
+#### Using AWS Lambda for Data Preprocessing
+Create an **AWS Lambda function** that reads raw data from S3, preprocesses it, and stores it in another S3 bucket:
+
+```python
+import boto3
+import pandas as pd
+from io import StringIO
+
+def lambda_handler(event, context):
+    s3 = boto3.client('s3')
+    raw_bucket = 'mlops-raw-data-bucket'
+    processed_bucket = 'mlops-processed-data-bucket'
+    file_key = 'data.csv'
+
+    # Read raw data from S3
+    response = s3.get_object(Bucket=raw_bucket, Key=file_key)
+    df = pd.read_csv(response['Body'])
+    
+    # Preprocess data (e.g., handle missing values)
+    df.fillna(0, inplace=True)
+    
+    # Convert DataFrame to CSV and upload to processed S3 bucket
+    csv_buffer = StringIO()
+    df.to_csv(csv_buffer, index=False)
+    s3.put_object(Bucket=processed_bucket, Key='processed_data.csv', Body=csv_buffer.getvalue())
+```
 
 ### 3. **Model Training in Amazon SageMaker**
-- Create a **SageMaker Training Job** with the following steps:
-  1. Define a **Docker container** with ML framework (TensorFlow, PyTorch, Scikit-Learn, etc.).
-  2. Use **Amazon SageMaker SDK** to initiate model training.
-  3. Store trained model artifacts in S3.
+#### Creating a SageMaker Training Job
+- Define a **Docker container** with the required ML framework (TensorFlow, PyTorch, Scikit-Learn, etc.).
+- Use **Amazon SageMaker SDK** to initiate model training.
+- Store trained model artifacts in S3.
 
 ```python
 import boto3
@@ -56,9 +95,9 @@ estimator = sagemaker.sklearn.SKLearn(
     role=role,
     instance_type='ml.m5.large',
     framework_version='0.23-1',
-    output_path=os.getenv('S3_OUTPUT_PATH', 's3://your-bucket/output/')  # Use environment variable for flexibility
+    output_path=os.getenv('S3_OUTPUT_PATH', 's3://mlops-model-bucket/output/')  # Use environment variable for flexibility
 )
-estimator.fit({'train': 's3://your-bucket/data/train.csv'})
+estimator.fit({'train': 's3://mlops-processed-data-bucket/processed_data.csv'})
 ```
 
 ### 4. **Model Deployment with Amazon SageMaker Endpoint**
@@ -73,9 +112,6 @@ try:
 except Exception as e:
     print(f"Error deploying model: {e}")
     raise
-    initial_instance_count=1,
-    instance_type='ml.m5.large'
-)
 ```
 
 ### 5. **Automating Model Deployment using CI/CD (AWS CodePipeline + CodeBuild)**
@@ -111,13 +147,6 @@ cloudwatch.put_metric_alarm(
     MetricName='Latency',
     Namespace='AWS/SageMaker',
     Threshold=500,  # Consider dynamically adjusting based on historical data
-    ComparisonOperator='GreaterThanThreshold',
-    Period=60,
-    EvaluationPeriods=2
-    AlarmName='SageMakerEndpointLatency',
-    MetricName='Latency',
-    Namespace='AWS/SageMaker',
-    Threshold=500,
     ComparisonOperator='GreaterThanThreshold',
     Period=60,
     EvaluationPeriods=2
